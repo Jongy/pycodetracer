@@ -43,6 +43,7 @@ from termcolor import colored
 class TraceTransformer(NodeTransformer):
     _INDENT = 2  # indentation per depth
     _DEPTH_VAR = "__depth"
+    _RETURN_VAR = "__return"
     FUNC_COLOR = "red"  # colors function calls
     FUNC_CALLED_COLOR = "yellow"  # colored called functions
     NAME_COLOR = "green"  # colors names
@@ -152,9 +153,13 @@ class TraceTransformer(NodeTransformer):
 
     def visit_Return(self, n: Return):
         """
-        * Decrement the depth before exiting
+        * Decrement the depth before exiting. We have to save the returned value into a temporary,
+          and only then decrement; otherwise, if the return value itself is a Call, we lose the
+          depth.
         """
-        return (self._fix_location(self._decrement_depth(), n), n)
+        var = Assign([Name(self._RETURN_VAR, Store())], n.value)
+        n.value = Name(self._RETURN_VAR, Load())
+        return self._fix_location_all([var, self._decrement_depth(), n], n)
 
     def visit_Module(self, n: Module) -> Module:
         """
