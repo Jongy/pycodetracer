@@ -22,6 +22,7 @@ from ast import (
     Mult,
     Name,
     NodeTransformer,
+    Return,
     Store,
     Sub,
     alias,
@@ -143,6 +144,12 @@ class TraceTransformer(NodeTransformer):
         )
         return (n, self._fix_location(self._make_print(print_str), n))
 
+    def visit_Return(self, n: Return):
+        """
+        * Decrement the depth before exiting
+        """
+        return (self._fix_location(self._decrement_depth(), n), n)
+
     def visit_Module(self, n: Module) -> Module:
         """
         Adds:
@@ -168,17 +175,21 @@ class TraceTransformer(NodeTransformer):
     def visit_Expr(self, n: Expr) -> Union[Expr, Tuple[stmt, Expr]]:
         value = n.value
         if isinstance(value, Call):
-            return self._fix_location_all(
-                (self._repr_call(value), self._increment_depth(), n, self._decrement_depth()), n
-            )
+            return (self._fix_location(self._repr_call(value), n), n)
         return n
 
     def visit_FunctionDef(self, n: FunctionDef) -> FunctionDef:
         """
-        Adds a first statement "global" to mark our depth variable as such
+        * Adds a first statement "global" to mark our depth variable as such
+        * Increment the depth on entry
+        * Decrement the depth as the last statement (we also decrement before each Return)
+        We'll do that on function entry/exit and not on each Call-site, because functions can begin
+        executing without a Call at all (e.g: __getattr__).
         """
         self.generic_visit(n)
         n.body.insert(0, self._fix_location(Global([self._DEPTH_VAR]), n))
+        n.body.insert(1, self._fix_location(self._increment_depth(), n))
+        n.body.append(self._fix_location(self._decrement_depth(), n))
         return n
 
 
