@@ -26,6 +26,7 @@ from ast import (
     Store,
     Sub,
     alias,
+    arg,
     copy_location,
     expr,
     fix_missing_locations,
@@ -43,6 +44,7 @@ class TraceTransformer(NodeTransformer):
     _INDENT = 2  # indentation per depth
     _DEPTH_VAR = "__depth"
     FUNC_COLOR = "red"  # colors function calls
+    FUNC_CALLED_COLOR = "yellow"  # colored called functions
     NAME_COLOR = "green"  # colors names
     CONST_COLOR = "cyan"  # colors constants
 
@@ -104,6 +106,8 @@ class TraceTransformer(NodeTransformer):
             # so we can cache the results, because it's likely that arguments are exprs
             # with side effects. ahhh, GCC's SAVE_EXPR... where are you
             return "..."
+        elif isinstance(n, arg):
+            return colored(f"{n.arg}={{{n.arg}}}", self.NAME_COLOR)
         else:
             raise NotImplementedError(f"{n} not supported")
 
@@ -121,15 +125,17 @@ class TraceTransformer(NodeTransformer):
             + ", ".join(self._repr_rvalue(arg) for arg in n.args)
             + ")"
         )
-        # we now turn it into an f-string
-        parsed = ast.parse("f" + repr(rep))
+        return self._make_print(self._parse_fstring(rep))
+
+    def _parse_fstring(self, fstr: str) -> expr:
+        parsed = ast.parse("f" + repr(fstr))
         assert (
             isinstance(parsed, Module)
             and isinstance(parsed.body, list)
             and len(parsed.body) == 1
             and isinstance(parsed.body[0], Expr)
         )
-        return self._make_print(parsed.body[0].value)
+        return parsed.body[0].value
 
     def visit_Assign(self, n: Assign) -> Union[Assign, Tuple[Assign, Expr]]:
         assert len(n.targets) == 1 and isinstance(n.targets[0], Name)
@@ -185,10 +191,18 @@ class TraceTransformer(NodeTransformer):
         * Decrement the depth as the last statement (we also decrement before each Return)
         We'll do that on function entry/exit and not on each Call-site, because functions can begin
         executing without a Call at all (e.g: __getattr__).
+        * Print my arguments
         """
         self.generic_visit(n)
         n.body.insert(0, self._fix_location(Global([self._DEPTH_VAR]), n))
         n.body.insert(1, self._fix_location(self._increment_depth(), n))
+        rep = (
+            f"{colored(n.name, self.FUNC_CALLED_COLOR)}("
+            # TODO posonly, kwargs, ...
+            + ", ".join(self._repr_rvalue(arg) for arg in n.args.args)
+            + ")"
+        )
+        n.body.insert(2, self._fix_location(self._make_print(self._parse_fstring(rep)), n))
         n.body.append(self._fix_location(self._decrement_depth(), n))
         return n
 
