@@ -34,7 +34,7 @@ from ast import (
     parse,
     stmt,
 )
-from typing import Sequence, Tuple, Union
+from typing import List, Sequence, Tuple, Union, cast
 
 from termcolor import colored
 
@@ -45,7 +45,8 @@ class TraceTransformer(NodeTransformer):
     _DEPTH_VAR = "__depth"
     _RETURN_VAR = "__return"
     FUNC_COLOR = "red"  # colors function calls
-    FUNC_CALLED_COLOR = "yellow"  # colored called functions
+    FUNC_CALLED_COLOR = "yellow"  # colors called functions
+    RETURN_COLOR = "magenta"  # colors returns & values
     NAME_COLOR = "green"  # colors names
     CONST_COLOR = "cyan"  # colors constants
 
@@ -73,13 +74,13 @@ class TraceTransformer(NodeTransformer):
     def _fix_location_all(self, nodes: Sequence[AST], old: AST):
         return [self._fix_location(n, old) for n in nodes]
 
-    def _make_print(self, n: expr) -> Expr:
+    def _make_print(self, ns: List[expr]) -> Expr:
         # assuming n is a string
         indent = BinOp(Constant(" "), Mult(), Name(self._DEPTH_VAR, Load()))
         return Expr(
             Call(
                 Name("print", Load()),
-                args=[indent, n],
+                args=cast(List[expr], [indent]) + ns,
                 keywords=[
                     keyword("sep", Constant("")),
                     keyword("file", Attribute(Name("sys", Load()), "stderr", Load())),
@@ -126,7 +127,7 @@ class TraceTransformer(NodeTransformer):
             + ", ".join(self._repr_rvalue(arg) for arg in n.args)
             + ")"
         )
-        return self._make_print(self._parse_fstring(rep))
+        return self._make_print([self._parse_fstring(rep)])
 
     def _parse_fstring(self, fstr: str) -> expr:
         parsed = ast.parse("f" + repr(fstr))
@@ -149,7 +150,7 @@ class TraceTransformer(NodeTransformer):
             args=[Name(n.targets[0].id, Load())],
             keywords=[],
         )
-        return (n, self._fix_location(self._make_print(print_str), n))
+        return (n, self._fix_location(self._make_print([print_str]), n))
 
     def visit_Return(self, n: Return):
         """
@@ -159,7 +160,21 @@ class TraceTransformer(NodeTransformer):
         """
         var = Assign([Name(self._RETURN_VAR, Store())], n.value)
         n.value = Name(self._RETURN_VAR, Load())
-        return self._fix_location_all([var, self._decrement_depth(), n], n)
+        return self._fix_location_all(
+            [
+                var,
+                self._make_print(
+                    [
+                        self._parse_fstring(
+                            colored(f"return {{{self._RETURN_VAR}}}", self.RETURN_COLOR)
+                        )
+                    ]
+                ),
+                self._decrement_depth(),
+                n,
+            ],
+            n,
+        )
 
     def visit_Module(self, n: Module) -> Module:
         """
@@ -207,7 +222,7 @@ class TraceTransformer(NodeTransformer):
             + ", ".join(self._repr_rvalue(arg) for arg in n.args.args)
             + ")"
         )
-        n.body.insert(2, self._fix_location(self._make_print(self._parse_fstring(rep)), n))
+        n.body.insert(2, self._fix_location(self._make_print([self._parse_fstring(rep)]), n))
         n.body.append(self._fix_location(self._decrement_depth(), n))
         return n
 
