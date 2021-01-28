@@ -107,7 +107,7 @@ class TraceTransformer(NodeTransformer):
             # TODO: this one is more complex: requires generation of temporary variables,
             # so we can cache the results, because it's likely that arguments are exprs
             # with side effects. ahhh, GCC's SAVE_EXPR... where are you
-            return "..."
+            return self._repr_call_base(n)
         elif isinstance(n, arg):
             return colored(f"{n.arg}={{{n.arg}}}", self.NAME_COLOR)
         else:
@@ -121,13 +121,15 @@ class TraceTransformer(NodeTransformer):
         else:
             raise NotImplementedError(f"{n} not supported")
 
-    def _repr_call(self, n: Call) -> stmt:
-        rep = (
+    def _repr_call_base(self, n: Call) -> str:
+        return (
             f"{colored(self._repr_func(n.func), self.FUNC_COLOR)}("
             + ", ".join(self._repr_rvalue(arg) for arg in n.args)
             + ")"
         )
-        return self._make_print([self._parse_fstring(rep)])
+
+    def _repr_call(self, n: Call) -> stmt:
+        return self._make_print([self._parse_fstring(self._repr_call_base(n))])
 
     def _parse_fstring(self, fstr: str) -> expr:
         parsed = ast.parse("f" + repr(fstr))
