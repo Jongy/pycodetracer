@@ -25,6 +25,7 @@ from ast import (
     Return,
     Store,
     Sub,
+    Tuple as AstTuple,
     alias,
     arg,
     copy_location,
@@ -96,6 +97,9 @@ class TraceTransformer(NodeTransformer):
         )
 
     def _repr_rvalue(self, n: AST) -> str:
+        """
+        Reprs a node being read from
+        """
         if isinstance(n, Name):
             assert isinstance(n.ctx, Load)
             return colored(f"{n.id} ({{{n.id}!r}})", self.NAME_COLOR)
@@ -117,6 +121,19 @@ class TraceTransformer(NodeTransformer):
             return self._repr_call_base(n)
         elif isinstance(n, arg):
             return colored(f"{n.arg}={{{n.arg}}}", self.NAME_COLOR)
+        else:
+            raise NotImplementedError(f"{n} not supported")
+
+    def _repr_lvalue(self, n: AST) -> str:
+        """
+        Reprs a *single* node being assigned to
+        """
+        if isinstance(n, Name):
+            assert isinstance(n.ctx, Store)
+            return colored(f"{n.id}", self.NAME_COLOR)
+        elif isinstance(n, Attribute):
+            assert isinstance(n.ctx, Store)
+            return f"{self._repr_lvalue(n.value)}.{n.attr}"
         else:
             raise NotImplementedError(f"{n} not supported")
 
@@ -148,17 +165,23 @@ class TraceTransformer(NodeTransformer):
         )
         return parsed.body[0].value
 
+    def _break_assign(self, target: AST, value: AST):
+        if isinstance(target, AstTuple):
+            assert isinstance(value, AstTuple)
+            assert len(target.elts) == len(value.elts)
+            return [self._break_assign(t, v) for t ,v in zip(target.elts, value.elts)]
+        else:
+            self._make_print([Constant(value=self._repr_lvalue(target))])
+            # ....
+
     def visit_Assign(self, n: Assign) -> Union[Assign, Tuple[Assign, Expr]]:
-        assert len(n.targets) == 1 and isinstance(n.targets[0], Name)
-        print_str = Call(
-            Attribute(
-                Constant(value=colored(f"{n.targets[0].id} = {{}}", "red")),
-                attr="format",
-                ctx=Load(),
-            ),
-            args=[Name(n.targets[0].id, Load())],
-            keywords=[],
-        )
+        """
+        Break down complex tuple assign operations into multiple;
+        Execute them one-by-one, printing the assignments as it goes.
+        TODO not complete in the sense of all possible unpacking options
+        """
+        assert len(n.targets) == 1, ast.dump(n)
+        exprs = self._break_assign(n.targets[0], n.value)
         return (n, self._fix_location(self._make_print([print_str]), n))
 
     def visit_Return(self, n: Return):
