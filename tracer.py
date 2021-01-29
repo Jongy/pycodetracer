@@ -177,7 +177,8 @@ class TraceTransformer(NodeTransformer):
                         self._parse_fstring(
                             colored(f"return {{{self._RETURN_VAR}}}", self.RETURN_COLOR)
                         )
-                    ]
+                    ],
+                    "< ",
                 ),
                 self._decrement_depth(),
                 n,
