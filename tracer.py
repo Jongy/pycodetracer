@@ -251,7 +251,7 @@ def run_script(args):
         if args.show:
             import astor  # type: ignore
 
-            print(astor.to_source(ast_obj))
+            print(astor.to_source(ast_obj), file=sys.stderr)
         code = compile(ast_obj, args.progname, "exec")
     globs = {
         "__file__": args.progname,
