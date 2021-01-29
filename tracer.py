@@ -74,9 +74,16 @@ class TraceTransformer(NodeTransformer):
     def _fix_location_all(self, nodes: Sequence[AST], old: AST):
         return [self._fix_location(n, old) for n in nodes]
 
-    def _make_print(self, ns: List[expr]) -> Expr:
-        # assuming n is a string
-        indent = BinOp(Constant(" "), Mult(), Name(self._DEPTH_VAR, Load()))
+    def _make_print(self, ns: List[expr], prefix: str = None) -> Expr:
+        # create the indent: ' ' * depth
+        mul_by = Name(self._DEPTH_VAR, Load())
+        indent = BinOp(Constant(" "), Mult(), mul_by)
+        # if prefix is given, indent is: ' ' * (depth - len(prefix)) + prefix
+        if prefix is not None:
+            assert len(prefix) <= self._INDENT, f"too long {prefix} for given indent {self._INDENT}"
+            indent.right = BinOp(mul_by, Sub(), Constant(len(prefix)))
+            indent = BinOp(indent, Add(), Constant(prefix))
+
         return Expr(
             Call(
                 Name("print", Load()),
@@ -224,7 +231,7 @@ class TraceTransformer(NodeTransformer):
             + ", ".join(self._repr_rvalue(arg) for arg in n.args.args)
             + ")"
         )
-        n.body.insert(2, self._fix_location(self._make_print([self._parse_fstring(rep)]), n))
+        n.body.insert(2, self._fix_location(self._make_print([self._parse_fstring(rep)], "> "), n))
         n.body.append(self._fix_location(self._decrement_depth(), n))
         return n
 
